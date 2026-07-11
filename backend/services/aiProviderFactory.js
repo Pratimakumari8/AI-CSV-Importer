@@ -1,6 +1,7 @@
 const providers = {
   anthropic: require("./aiProviders/anthropicProvider"),
   openai: require("./aiProviders/openaiProvider"),
+  gemini: require("./aiProviders/geminiProvider"),
   mock: require("./aiProviders/mockProvider"),
 };
 

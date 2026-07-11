@@ -42,6 +42,27 @@ test("extractJsonArray throws on non-array JSON", () => {
   assert.throws(() => extractJsonArray('{"a":1}'));
 });
 
+test("extractJsonArray recovers complete objects from a truncated array", () => {
+  // Simulates a response cut off mid-object, as happens when a model hits
+  // its max output token limit partway through writing the array.
+  const truncated = '[{"a":1,"b":"x"},{"a":2,"b":"y"},{"a":3,"b":"trunc';
+  const result = extractJsonArray(truncated);
+  assert.deepEqual(result, [
+    { a: 1, b: "x" },
+    { a: 2, b: "y" },
+  ]);
+});
+
+test("extractJsonArray recovery ignores braces inside string values", () => {
+  const truncated = '[{"note":"contains { and } inside a string","id":1},{"id":2,"cut';
+  const result = extractJsonArray(truncated);
+  assert.deepEqual(result, [{ note: "contains { and } inside a string", id: 1 }]);
+});
+
+test("extractJsonArray throws when nothing is recoverable", () => {
+  assert.throws(() => extractJsonArray("[complete garbage, not json at all"));
+});
+
 test("sanitizeCrmRecord rejects hallucinated enum values", () => {
   const clean = sanitizeCrmRecord({
     crm_status: "SUPER_HOT_LEAD", // not in allowed list

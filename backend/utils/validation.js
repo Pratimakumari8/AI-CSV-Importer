@@ -15,6 +15,25 @@ function rowHasContactInfo(rawRow) {
 }
 
 /**
+ * Direct regex-based extraction of email/phone from a raw row, used as a
+ * recovery path when the AI incorrectly claims a row has no contact info.
+ * Deliberately minimal — just enough to justify importing the row rather
+ * than losing it, not a substitute for full AI field mapping.
+ */
+function extractContactInfo(rawRow) {
+  const values = Object.values(rawRow || {}).map((v) => String(v ?? ""));
+  const joined = values.join(" ");
+
+  const emailMatch = joined.match(EMAIL_REGEX);
+  const phoneMatch = joined.replace(/[\s()-]/g, "").match(PHONE_DIGITS_REGEX);
+
+  return {
+    email: emailMatch ? emailMatch[0].toLowerCase() : "",
+    phone: phoneMatch ? phoneMatch[0] : "",
+  };
+}
+
+/**
  * Strips a record down to only the allowed CRM schema keys, coerces
  * everything to single-line strings, and rejects enum values the model
  * hallucinated outside the allowed lists (rather than trusting them).
@@ -61,6 +80,7 @@ function recordHasContactInfo(record) {
 
 module.exports = {
   rowHasContactInfo,
+  extractContactInfo,
   sanitizeCrmRecord,
   recordHasContactInfo,
 };

@@ -1,6 +1,6 @@
 const { getAiProvider } = require("./aiProviderFactory");
 const { chunkArray, sleep, backoffDelay } = require("../utils/batchUtils");
-const { sanitizeCrmRecord, recordHasContactInfo, rowHasContactInfo } = require("../utils/validation");
+const { sanitizeCrmRecord, recordHasContactInfo, rowHasContactInfo, extractContactInfo } = require("../utils/validation");
 
 const BATCH_SIZE = Number(process.env.AI_BATCH_SIZE) || 25;
 const MAX_RETRIES = Number(process.env.AI_MAX_RETRIES) || 3;
@@ -48,10 +48,18 @@ async function extractCrmRecords(rawRows, onProgress) {
         returnedIds.add(item._id);
 
         if (item._skip) {
-          skipped.push({
-            row: stripId(originalRow),
-            reason: item._skip_reason || "Skipped by AI (no reason given)",
-          });
+          // Don't trust the AI's skip decision blindly — verify against the
+          // row's actual content first. If it clearly has contact info, the
+          // AI made a mapping error, not a legitimate skip. Recover it with
+          // a direct regex extraction rather than losing the row.
+          if (rowHasContactInfo(originalRow)) {
+            imported.push(recoverFromRawRow(originalRow));
+          } else {
+            skipped.push({
+              row: stripId(originalRow),
+              reason: item._skip_reason || "Skipped by AI (no reason given)",
+            });
+          }
           continue;
         }
 
@@ -75,12 +83,14 @@ async function extractCrmRecords(rawRows, onProgress) {
       // before deciding whether to skip it, rather than losing it silently.
       for (const row of batch) {
         if (returnedIds.has(row._id)) continue;
-        skipped.push({
-          row: stripId(row),
-          reason: rowHasContactInfo(row)
-            ? "AI did not return a result for this row"
-            : "No email or phone number found in any column",
-        });
+        if (rowHasContactInfo(row)) {
+          imported.push(recoverFromRawRow(row));
+        } else {
+          skipped.push({
+            row: stripId(row),
+            reason: "No email or phone number found in any column",
+          });
+        }
       }
     }
 
@@ -117,6 +127,23 @@ async function processBatchWithRetry(provider, batch) {
 
 function stripId({ _id, ...rest }) {
   return rest;
+}
+
+/**
+ * Minimal fallback record builder for rows the AI incorrectly claimed had
+ * no contact info (or silently dropped) despite the row clearly containing
+ * one. Only email/phone are populated via direct regex extraction — this is
+ * a safety net to avoid losing valid leads, not a substitute for full AI
+ * field mapping, so other fields are left blank and crm_note explains why.
+ */
+function recoverFromRawRow(rawRow) {
+  const { email, phone } = extractContactInfo(rawRow);
+  return sanitizeCrmRecord({
+    email,
+    mobile_without_country_code: phone,
+    crm_note:
+      "Auto-recovered: AI did not map this row despite it containing an email/phone — only contact info was extracted automatically, other fields need manual review.",
+  });
 }
 
 module.exports = { extractCrmRecords };

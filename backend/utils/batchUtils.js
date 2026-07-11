@@ -21,7 +21,7 @@ function sleep(ms) {
 /**
  * Exponential backoff delay with jitter, capped at maxMs.
  */
-function backoffDelay(attempt, baseMs = 500, maxMs = 8000) {
+function backoffDelay(attempt, baseMs = 1000, maxMs = 15000) {
   const exp = Math.min(maxMs, baseMs * 2 ** attempt);
   const jitter = Math.random() * exp * 0.3;
   return Math.round(exp * 0.7 + jitter);
