@@ -6,16 +6,52 @@ Instead of requiring fixed column names, an AI model intelligently maps arbitrar
 
 ---
 
+# 🔗 Live Demo
+
+- **Frontend (Vercel):** https://ai-csv-importer-flame.vercel.app
+- **Backend API (Back4app, Dockerized):** https://groweasycsvbackend-uu1s13m3.b4a.run
+- **Backend health check:** https://groweasycsvbackend-uu1s13m3.b4a.run/api/health
+
+---
+
+# ✅ Testing
+
+The app was validated against a self-built suite of 20 test CSVs covering every edge case called out in the assignment, including:
+
+- Standard CRM/Facebook/Google Ads exports
+- Multiple emails and multiple phone numbers in a single row
+- Rows with no email and no phone (correctly skipped)
+- Messy/shuffled/extra columns, weird headers
+- Blank rows, duplicate rows, missing values
+- Mixed and ambiguous date formats
+- International names and unicode characters
+- Empty files (rejected client-side before reaching the AI)
+- A full production-scale dataset (500+ rows) to validate batching, retries, and streaming progress at scale
+
+All 20 test cases pass, including correct skip-rule enforcement (email/mobile required), correct multi-email/phone handling (first value kept, rest appended to `crm_note`), and graceful recovery when the AI misjudges a row (verified against the raw CSV row rather than trusted blindly — see **Architecture Highlights** below).
+
+Backend unit tests (batching, JSON-recovery parsing, field sanitization, contact-info validation) also pass:
+
+```bash
+cd backend
+npm test
+```
+
+---
+
 # Features
 
 - 📂 Upload CSV files in any format
 - 👀 Client-side preview before importing
-- 🤖 AI-powered field mapping
-- ✅ Server-side validation
-- 📊 Live import progress using streaming
+- 🤖 AI-powered field mapping (Gemini / OpenAI / Anthropic / Mock)
+- ✅ Server-side validation — AI output is never trusted blindly
+- 📊 Live import progress using streaming (NDJSON)
 - ⚠️ Detailed skipped record reasons
 - 📥 Export cleaned imported records as CSV
-- 🔄 Supports Anthropic, OpenAI, or Mock AI provider
+- 🔁 Automatic retry with exponential backoff on AI batch failures
+- 🩹 Automatic recovery of rows the AI incorrectly skips or drops
+- 🐳 Dockerized backend, deployed as a container
+- 🌗 Dark mode, virtualized tables for large files, drag & drop upload
 
 ---
 
@@ -71,7 +107,10 @@ AI-CSV-Importer/
 │   ├── CSV Parsing
 │   ├── AI Extraction
 │   ├── Validation
-│   └── Streaming Responses
+│   ├── Streaming Responses
+│   └── Dockerfile      # Containerized deployment
+│
+├── test-data/          # 20 hand-built CSV test cases covering edge cases
 │
 └── README.md
 ```
@@ -82,8 +121,7 @@ AI-CSV-Importer/
 
 - Node.js 18+
 - npm
-- Anthropic API Key **or**
-- OpenAI API Key
+- An API key for your chosen AI provider. **Gemini is free, no credit card required** — get one at https://aistudio.google.com. Anthropic and OpenAI both require billing to be set up.
 
 Alternatively, use the built-in **Mock Provider** to test the complete pipeline without any API key.
 
@@ -102,14 +140,16 @@ cp .env.example .env
 Configure `.env`
 
 ```env
-AI_PROVIDER=anthropic
+AI_PROVIDER=gemini
 
-ANTHROPIC_API_KEY=your_api_key
+GEMINI_API_KEY=your_api_key
 
-ANTHROPIC_MODEL=claude-sonnet-4-6
+GEMINI_MODEL=gemini-flash-lite-latest
 ```
 
-To use the mock provider:
+Also supported: `AI_PROVIDER=anthropic` (with `ANTHROPIC_API_KEY`) or `AI_PROVIDER=openai` (with `OPENAI_API_KEY`).
+
+To use the mock provider (no API key needed):
 
 ```env
 AI_PROVIDER=mock
@@ -131,6 +171,31 @@ Run tests:
 
 ```bash
 npm test
+```
+
+---
+
+# 🐳 Docker
+
+The backend is fully containerized and is exactly what's running in production on Back4app.
+
+Build the image:
+
+```bash
+cd backend
+docker build -t groweasy-backend .
+```
+
+Run it locally:
+
+```bash
+docker run -p 5000:5000 --env-file .env groweasy-backend
+```
+
+Verify:
+
+```bash
+curl http://localhost:5000/api/health
 ```
 
 ---
@@ -238,6 +303,7 @@ Returns server status and active AI provider.
 
 Supports multiple AI providers through a common interface:
 
+- Gemini (recommended — free tier, no card required)
 - Anthropic
 - OpenAI
 - Mock Provider
@@ -260,19 +326,17 @@ Even if the AI reorders records, responses are correctly matched back to the ori
 
 ---
 
-### Server-side Validation
-
-AI responses are never trusted directly.
+### Server-side Validation — AI Is Never Trusted Blindly
 
 Every mapped record is validated again for:
 
-- Valid CRM Status
-- Valid Data Source
+- Valid CRM Status (against the fixed allowed list — hallucinated values are rejected)
+- Valid Data Source (same — unrecognized values are dropped, not guessed)
 - Required Email or Mobile
-- Date format
+- Date format (must survive `new Date(x)` or it's cleared)
 - Assignment rules
 
-Invalid records are skipped with a clear reason.
+Crucially, the AI's own **skip decisions** are also re-verified: if the AI claims a row has no email/phone but the raw row actually contains one, the row is automatically recovered (contact info extracted directly via regex) and imported instead of being lost — with a note flagging it for manual review. Invalid records that genuinely have no contact info are skipped with a clear reason.
 
 ---
 
@@ -283,11 +347,16 @@ Each AI batch is retried automatically if an API request fails.
 Features:
 
 - Configurable retry count
-- Exponential backoff
-- Random jitter
+- Exponential backoff with jitter
 - Graceful failure handling
 
 If retries are exhausted, only that batch is skipped instead of stopping the entire import.
+
+---
+
+### Truncation-Safe JSON Parsing
+
+Large batches occasionally get cut off mid-response if a model hits its output token limit. Rather than losing the entire batch, the parser recovers every complete record that was written before the cutoff and only drops the incomplete tail.
 
 ---
 
@@ -313,6 +382,7 @@ This enables:
 - Tailwind CSS
 - Papa Parse
 - TanStack React Virtual
+- Deployed on Vercel
 
 ## Backend
 
@@ -320,8 +390,9 @@ This enables:
 - Express.js
 - Multer
 - csv-parse
-- Anthropic SDK
-- OpenAI SDK
+- Gemini API / OpenAI SDK / Anthropic SDK
+- Docker
+- Deployed on Back4app (Containers)
 
 ---
 
@@ -334,8 +405,7 @@ This enables:
 - AI confidence scores
 - Manual field correction before import
 - Database persistence
-- Unit and integration test coverage
-- Docker deployment
+- Expanded integration test coverage
 
 ---
 
