@@ -1,4 +1,3 @@
-**Position Applied For:** Intern
 # 🤖 AI CSV Importer
 
 An AI-powered CSV importer that accepts CSV files in **any column layout** (Facebook Lead Ads, Google Ads, real estate CRM exports, manually created spreadsheets, etc.) and converts them into **GrowEasy CRM** records.
@@ -410,6 +409,3 @@ This enables:
 
 ---
 
-# License
-
-This project was developed as part of the **GrowEasy AI CSV Importer Assignment**.
